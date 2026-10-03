@@ -1,0 +1,6 @@
+/target
+/pkg
+/dist
+*.log
+.env
+.env.local
