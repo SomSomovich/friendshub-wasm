@@ -10,7 +10,7 @@ use libsignal_protocol::error::Result as SigResult;
 use libsignal_protocol::{
     Direction, GenericSignedPreKey, IdentityChange, IdentityKey, IdentityKeyPair,
     IdentityKeyStore, KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyId,
-    PreKeyRecord, PreKeyStore, PrivateKey, ProtocolAddress, PublicKey, SenderKeyRecord,
+    PreKeyRecord, PreKeyStore, ProtocolAddress, PublicKey, SenderKeyRecord,
     SenderKeyStore, SessionRecord, SessionStore, SignalProtocolError, SignedPreKeyId,
     SignedPreKeyRecord, SignedPreKeyStore,
 };
@@ -428,13 +428,10 @@ pub(crate) fn restore_inner(store: &Store, blob: &str) -> JsResult<()> {
 // ---------------------------------------------------------------------------
 
 pub(crate) fn decode_identity_key_pair(blob: &[u8]) -> SigResult<IdentityKeyPair> {
-    if blob.len() != 65 {
-        return Err(SignalProtocolError::InvalidArgument(format!(
-            "identity key pair blob is {} bytes, expected 65",
-            blob.len()
-        )));
-    }
-    let public = PublicKey::deserialize(&blob[..33])?;
-    let private = PrivateKey::deserialize(&blob[33..])?;
-    Ok(IdentityKeyPair::new(IdentityKey::new(public), private))
+    // Round-trips with `IdentityKeyPair::serialize()`, which produces
+    // protobuf-encoded bytes (69 bytes for an X25519 identity in v0.103.1).
+    // The previous 65-byte raw assumption was wrong. The native
+    // friendshub-core has the same mismatch and needs the same fix.
+    IdentityKeyPair::try_from(blob)
+        .map_err(|e| SignalProtocolError::InvalidArgument(format!("identity key pair: {e}")))
 }

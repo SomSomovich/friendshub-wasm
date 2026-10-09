@@ -191,14 +191,22 @@ pub fn generate_prekeys(account_id: &str, count: usize) -> JsResult<String> {
         // Kyber last resort
         let kyber_lr_id = next_id;
         next_id += 1;
-        let kyber_lr = KyberPreKeyRecord::generate(
-            kem::KeyType::Kyber1024,
+        // libsignal's KyberPreKeyRecord::generate calls SystemTime::now(),
+        // which panics on wasm32-unknown-unknown. Build the record by hand
+        // using the same shape, with our own clock instead.
+        let kyber_lr_kp = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
+        let kyber_lr_pub = kyber_lr_kp.public_key.serialize();
+        let kyber_lr_sig: Vec<u8> = identity
+            .private_key()
+            .calculate_signature(&kyber_lr_pub, &mut rng)
+            .map_err(js_err)?
+            .into_vec();
+        let kyber_lr = KyberPreKeyRecord::new(
             KyberPreKeyId::from(kyber_lr_id),
-            identity.private_key(),
-        )
-        .map_err(js_err)?;
-        let kyber_lr_pub = kyber_lr.public_key().map_err(js_err)?.serialize();
-        let kyber_lr_sig = GenericSignedPreKey::signature(&kyber_lr).map_err(js_err)?;
+            Timestamp::from_epoch_millis(now_millis()),
+            &kyber_lr_kp,
+            &kyber_lr_sig,
+        );
 
         // X25519 OTKs
         let mut otk_json = Vec::with_capacity(count);
@@ -220,16 +228,23 @@ pub fn generate_prekeys(account_id: &str, count: usize) -> JsResult<String> {
         for _ in 0..count {
             let id = next_id;
             next_id += 1;
-            let r = KyberPreKeyRecord::generate(
-                kem::KeyType::Kyber1024,
+            // Same SystemTime workaround as the last-resort key above.
+            let kp = kem::KeyPair::generate(kem::KeyType::Kyber1024, &mut rng);
+            let pub_b = kp.public_key.serialize();
+            let sig: Vec<u8> = identity
+                .private_key()
+                .calculate_signature(&pub_b, &mut rng)
+                .map_err(js_err)?
+                .into_vec();
+            let r = KyberPreKeyRecord::new(
                 KyberPreKeyId::from(id),
-                identity.private_key(),
-            )
-            .map_err(js_err)?;
-            let pub_b = r.public_key().map_err(js_err)?.serialize();
+                Timestamp::from_epoch_millis(now_millis()),
+                &kp,
+                &sig,
+            );
             kyber_otk_json.push(serde_json::json!({
                 "id": id,
-                "pub": hex::encode(pub_b),
+                "pub": hex::encode(&pub_b),
             }));
             kyber_otk_records.push((id, r));
         }
